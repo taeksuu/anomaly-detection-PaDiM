@@ -132,20 +132,4 @@ for category in CATEGORIES:
       #randomly reduce embedded vector size to torch.Size([dataset_size, 550, 56, 56])
       embedded_vectors = torch.index_select(embedded_vectors, 1, idx)
 
-      #calculate gaussian distribution
-      B, C, H, W = embedded_vectors.size()
-      embedded_vectors = embedded_vectors.view(B, C, H * W)
-
-      mean = torch.mean(embedded_vectors, dim=0).numpy()
-      cov = torch.zeros(C, C, H * W).numpy()
-      I = np.identity(C)
-      for i in range(H * W):
-          cov[:, :, i] = np.cov(embedded_vectors[:, :, i].numpy(), rowvar=False) + 0.01 * I
-
-      #save learned distribution
-      train_outputs = [mean, cov]
-      with open(train_feature_save_directory, 'wb') as f:
-          pickle.dump(train_outputs, f)
-  else:
-      with open(train_feature_save_directory, 'rb') as f:
-          train_outputs = pickle.load(f)
+      
