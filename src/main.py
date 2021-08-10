@@ -277,7 +277,7 @@ def main():
         model.layer2[-1].register_forward_hook(hook)
         model.layer3[-1].register_forward_hook(hook)
 
-    os.makedirs(os.path.join(args.save_directory, "temp_{}_Layer_{}_Rd_{}".format(args.backbone_model, args.layer_used,
+    os.makedirs(os.path.join(args.save_directory, "{}_Layer_{}_Rd_{}".format(args.backbone_model, args.layer_used,
                                                                                   args.dimensionality_reduction)),
                 exist_ok=True)
     fig, ax = plt.subplots(1, 2, figsize=(20, 10))
