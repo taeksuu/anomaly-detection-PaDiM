@@ -1,4 +1,4 @@
-from Dataset import MVTecADDataset, CATEGORIES
+from dataset import MVTecADDataset, CATEGORIES
 
 import torch
 from torchvision.models import resnet18, resnet152, wide_resnet50_2, wide_resnet101_2, resnext101_32x8d
