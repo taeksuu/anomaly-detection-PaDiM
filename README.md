@@ -98,55 +98,55 @@
 
 * ResNet18-Rd100
 
-<p align="center">
+<p align="left">
     <img src="imgs/metrics_curve.png" width="1000"\>
 </p>
 
 
 ### Localization examples
 
-<p align="center">
+<p align="left">
     <img src="imgs/bottle_13.png" width="600"\>
 </p>
-<p align="center">
+<p align="left">
     <img src="imgs/cable_2.png" width="600"\>
 </p>
-<p align="center">
+<p align="left">
     <img src="imgs/capsule_6.png" width="600"\>
 </p>
-<p align="center">
+<p align="left">
     <img src="imgs/carpet_8.png" width="600"\>
 </p>
-<p align="center">
+<p align="left">
     <img src="imgs/grid_1.png" width="600"\>
 </p>
-<p align="center">
+<p align="left">
     <img src="imgs/hazelnut_0.png" width="600"\>
 </p>
-<p align="center">
+<p align="left">
     <img src="imgs/leather_2.png" width="600"\>
 </p>
-<p align="center">
+<p align="left">
     <img src="imgs/metal_nut_25.png" width="600"\>
 </p>
-<p align="center">
+<p align="left">
     <img src="imgs/pill_43.png" width="600"\>
 </p>
-<p align="center">
+<p align="left">
     <img src="imgs/screw_47.png" width="600"\>
 </p>
-<p align="center">
+<p align="left">
     <img src="imgs/tile_28.png" width="600"\>
 </p>
-<p align="center">
+<p align="left">
     <img src="imgs/toothbrush_14.png" width="600"\>
 </p>
-<p align="center">
+<p align="left">
     <img src="imgs/transistor_3.png" width="600"\>
 </p>
-<p align="center">
+<p align="left">
     <img src="imgs/wood_1.png" width="600"\>
 </p>
-<p align="center">
+<p align="left">
     <img src="imgs/zipper_6.png" width="600"\>
 </p>
