@@ -150,3 +150,11 @@
 <p align="left">
     <img src="imgs/zipper_6.png" width="600"\>
 </p>
+
+
+## Reference
+[1] Thomas Defard, Aleksandr Setkov, Angelique Loesch, Romaric Audigier. *PaDiM: a Patch Distribution Modeling Framework for Anomaly Detection and Localization*. https://arxiv.org/pdf/2011.08785
+
+[2] https://github.com/xiahaifeng1995/PaDiM-Anomaly-Detection-Localization-master
+
+[3] https://github.com/Pangoraw/SemiOrthogonal
