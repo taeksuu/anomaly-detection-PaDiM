@@ -94,7 +94,7 @@
 |All classes|0.92| | | |
 
 
-### ROC Curve
+### Metrics Curve
 
 * ResNet18-Rd100
 
@@ -103,7 +103,7 @@
 </p>
 
 
-### Localization examples
+### Segmentation examples
 
 <p align="left">
     <img src="imgs/bottle_13.png" width="600"\>
