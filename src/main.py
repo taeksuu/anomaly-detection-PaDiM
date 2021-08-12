@@ -18,20 +18,18 @@ from collections import OrderedDict
 from tqdm import tqdm
 import numpy as np
 import pickle
-from scipy.spatial.distance import mahalanobis
+from scipy.spatial.distance import mahalanobis, cdist
 from scipy.ndimage import gaussian_filter
-from sklearn.metrics import roc_curve, roc_auc_score, precision_recall_curve
+from sklearn.metrics import auc, roc_curve, roc_auc_score, precision_recall_curve
 from skimage import morphology
 from skimage.segmentation import mark_boundaries
+from skimage import measure
 
 import warnings
 
 warnings.filterwarnings("ignore")
 
 device = torch.device("cuda:0" if torch.cuda.is_available else "cpu")
-
-
-# In[2]:
 
 
 def parse_args():
@@ -42,14 +40,11 @@ def parse_args():
                         choices=['resnet18', 'resnet152', 'wide_resnet50_2', 'wide_resnet101_2', 'resnext101_32x8d',
                                  'efficientnet_b5', 'efficientnet_b7'], default='wide_resnet50_2')
     parser.add_argument('--layer_used', type=str, choices=['1', '2', '3', '1+2+3'], default='1+2+3')
-    parser.add_argument('--dimensionality_reduction', type=int, default=-1)
+    parser.add_argument('--dimensionality_reduction', type=int, default=550)
     parser.add_argument('--gaussian_regularisation_term', type=float, default=0.01)
     parser.add_argument('--interpolation_mode', type=str, choices=['bicubic', 'bilinear'], default='bicubic')
     parser.add_argument('--gaussian_filter_std', type=float, default=4.0)
     return parser.parse_args()
-
-
-# In[5]:
 
 
 def main():
@@ -277,15 +272,19 @@ def main():
         model.layer2[-1].register_forward_hook(hook)
         model.layer3[-1].register_forward_hook(hook)
 
-    os.makedirs(os.path.join(args.save_directory, "{}_Layer_{}_Rd_{}".format(args.backbone_model, args.layer_used,
+    os.makedirs(os.path.join(args.save_directory, "temp_{}_Layer_{}_Rd_{}".format(args.backbone_model, args.layer_used,
                                                                                   args.dimensionality_reduction)),
                 exist_ok=True)
-    fig, ax = plt.subplots(1, 2, figsize=(20, 10))
+    fig, ax = plt.subplots(1, 4, figsize=(40, 10))
     fig_img_rocauc = ax[0]
     fig_pixel_rocauc = ax[1]
+    fig_proauc = ax[2]
+    fig_prauc = ax[3]
 
     total_img_rocauc = []
     total_pixel_rocauc = []
+    total_proauc = []
+    total_prauc = []
 
     for category in CATEGORIES:
         train_dataset = MVTecADDataset(dataset_path=args.dataset_directory, mode="train", category=category,
@@ -433,30 +432,75 @@ def main():
         min_score = anomaly_map.min()
         normalized_scores = (anomaly_map - min_score) / (max_score - min_score)
 
-        # image-level ROCAUC
+        # image-level ROC
         img_scores = normalized_scores.reshape(normalized_scores.shape[0], -1).max(axis=1)
         test_label_list = np.asarray(test_label_list)
         FPR, TPR, _ = roc_curve(test_label_list, img_scores)
         img_rocauc = roc_auc_score(test_label_list, img_scores)
         total_img_rocauc.append(img_rocauc)
-        print("image-level ROCAUC: {}".format(img_rocauc))
-        fig_img_rocauc.plot(FPR, TPR, label="{} image-level ROCAUC: {}".format(category, img_rocauc))
+        print("image-level ROCAUC: {:.2f}".format(img_rocauc))
+        fig_img_rocauc.plot(FPR, TPR, label="{} image-level ROCAUC: {:.2f}".format(category, img_rocauc))
 
-        # pixel-level ROCAUC
+        # pixel-level ROC
         test_mask_list = np.asarray(test_mask_list)
         FPR, TPR, _ = roc_curve(test_mask_list.flatten(), normalized_scores.flatten())
         pixel_rocauc = roc_auc_score(test_mask_list.flatten(), normalized_scores.flatten())
         total_pixel_rocauc.append(pixel_rocauc)
-        print("pixel-level ROCAUC: {}".format(pixel_rocauc))
-        fig_pixel_rocauc.plot(FPR, TPR, label="{} pixel-level ROCAUC: {}".format(category, pixel_rocauc))
+        print("pixel-level ROCAUC: {:.2f}".format(pixel_rocauc))
+        fig_pixel_rocauc.plot(FPR, TPR, label="{} pixel-level ROCAUC: {:.2f}".format(category, pixel_rocauc))
 
-        roc_score_save_directory = os.path.join(args.save_directory,
-                                                "temp_{}_Layer_{}_Rd_{}".format(args.backbone_model, args.layer_used,
-                                                                                args.dimensionality_reduction,
-                                                                                category), category)
-        with open(os.path.join(roc_score_save_directory, "rocauc_score.txt"), 'w') as f:
-            f.write("image-level ROCAUC: {}\n".format(img_rocauc))
-            f.write("pixel-level ROCAUC: {}".format(pixel_rocauc))
+        # PRO
+        binary_anomaly_maps = np.zeros_like(normalized_scores, dtype=np.bool)
+        max_step = 200
+        max_score = normalized_scores.max()
+        min_score = normalized_scores.min()
+        delta = (max_score - min_score) / max_step
+
+        FPR = []
+        PRO = []
+
+        for th in tqdm(np.arange(min_score, max_score, delta), 'Computing PRO score'):
+            binary_anomaly_maps[normalized_scores <= th] = 0
+            binary_anomaly_maps[normalized_scores > th] = 1
+
+            PROs = []
+            for b, mask in zip(binary_anomaly_maps, test_mask_list.squeeze(1)):
+                for region in measure.regionprops(measure.label(mask)):
+                    axes0_idx = region.coords[:, 0]
+                    axes1_idx = region.coords[:, 1]
+                    TP_pixels = b[axes0_idx, axes1_idx].sum()
+                    PROs.append(TP_pixels / region.area)
+
+            inverse_masks = 1 - test_mask_list.squeeze(1)
+            FP_pixels = np.logical_and(inverse_masks, binary_anomaly_maps).sum()
+            fpr = FP_pixels / inverse_masks.sum()
+            pro = np.mean(PROs)
+
+            if fpr <= 0.3:
+                FPR.append(fpr)
+                PRO.append(pro)
+        proauc = auc(FPR, PRO) * 100 / 30
+        total_proauc.append(proauc)
+        print("PROAUC: {:.2f}".format(proauc))
+        fig_proauc.plot(FPR, PRO, label="{} PROAUC: {:.2f}".format(category, proauc))
+
+        # precision-recall
+        precision, recall, thresholds = precision_recall_curve(test_mask_list.flatten(), normalized_scores.flatten())
+        prauc = auc(recall, precision)
+        total_prauc.append(prauc)
+        print("PRAUC: {:.2f}".format(prauc))
+        fig_prauc.plot(recall, precision, label="{} PRAUC: {:.2f}".format(category, prauc))
+
+        # save metrics to txt file
+        metrics_save_directory = os.path.join(args.save_directory,
+                                              "temp_{}_Layer_{}_Rd_{}".format(args.backbone_model, args.layer_used,
+                                                                              args.dimensionality_reduction,
+                                                                              category), category)
+        with open(os.path.join(metrics_save_directory, "metrics.txt"), 'w') as f:
+            f.write("image-level ROCAUC: {:.2f}\n".format(img_rocauc))
+            f.write("pixel-level ROCAUC: {:.2f}\n".format(pixel_rocauc))
+            f.write("PROAUC: {:.2f}\n".format(proauc))
+            f.write("PRAUC: {:.2f}\n".format(prauc))
 
         # calculate optimal threshold for final results
         precision, recall, thresholds = precision_recall_curve(test_mask_list.flatten(), normalized_scores.flatten())
@@ -478,37 +522,63 @@ def main():
                  category)
 
     # average result of model
-    average_roc_score_save_directory = os.path.join(args.save_directory,
-                                                    "temp_{}_Layer_{}_Rd_{}".format(args.backbone_model,
-                                                                                    args.layer_used,
-                                                                                    args.dimensionality_reduction,
-                                                                                    category))
-    with open(os.path.join(average_roc_score_save_directory, "rocauc_score.txt"), 'w') as f:
-        f.write("Average image-level ROCAUC (all classes): {}\n".format(np.mean(total_img_rocauc)))
-        f.write("Average pixel-level ROCAUC (all classes): {}\n".format(np.mean(total_pixel_rocauc)))
+    average_metrics_save_directory = os.path.join(args.save_directory,
+                                                  "temp_{}_Layer_{}_Rd_{}".format(args.backbone_model,
+                                                                                  args.layer_used,
+                                                                                  args.dimensionality_reduction,
+                                                                                  category))
+    with open(os.path.join(average_metrics_save_directory, "metrics.txt"), 'w') as f:
+        f.write("Average image-level ROCAUC (all classes): {:.2f}\n".format(np.mean(total_img_rocauc)))
+        f.write("Average pixel-level ROCAUC (all classes): {:.2f}\n".format(np.mean(total_pixel_rocauc)))
+        f.write("Average PROAUC (all classes): {:.2f}\n".format(np.mean(total_proauc)))
+        f.write("Average PRAUC (all classes): {:.2f}\n".format(np.mean(total_prauc)))
 
-        f.write("Average image-level ROCAUC (all texture classes): {}\n".format(
+        f.write("Average image-level ROCAUC (all texture classes): {:.2f}\n".format(
             np.mean([total_img_rocauc[i] for i in [3, 4, 6, 10, 13]])))
-        f.write("Average pixel-level ROCAUC (all texture classes): {}\n".format(
+        f.write("Average pixel-level ROCAUC (all texture classes): {:.2f}\n".format(
             np.mean([total_pixel_rocauc[i] for i in [3, 4, 6, 10, 13]])))
+        f.write("Average PROAUC (all texture classes): {:.2f}\n".format(
+            np.mean([total_proauc[i] for i in [3, 4, 6, 10, 13]])))
+        f.write("Average PRAUC (all texture classes): {:.2f}\n".format(
+            np.mean([total_prauc[i] for i in [3, 4, 6, 10, 13]])))
 
-        f.write("Average image-level ROCAUC (all object classes): {}\n".format(
+        f.write("Average image-level ROCAUC (all object classes): {:.2f}\n".format(
             np.mean([total_img_rocauc[i] for i in [0, 1, 2, 5, 7, 8, 9, 11, 12, 14]])))
-        f.write("Average pixel-level ROCAUC (all object classes): {}\n".format(
+        f.write("Average pixel-level ROCAUC (all object classes): {:.2f}\n".format(
             np.mean([total_pixel_rocauc[i] for i in [0, 1, 2, 5, 7, 8, 9, 11, 12, 14]])))
+        f.write("Average PROAUC (all object classes): {:.2f}\n".format(
+            np.mean([total_proauc[i] for i in [0, 1, 2, 5, 7, 8, 9, 11, 12, 14]])))
+        f.write("Average PRAUC (all object classes): {:.2f}\n".format(
+            np.mean([total_prauc[i] for i in [0, 1, 2, 5, 7, 8, 9, 11, 12, 14]])))
 
-    print("Average image-level ROCAUC: {}".format(np.mean(total_img_rocauc)))
-    fig_img_rocauc.title.set_text("Average image-level ROCAUC: {}".format(np.mean(total_img_rocauc)))
+    print("Average image-level ROCAUC: {:.2f}".format(np.mean(total_img_rocauc)))
+    fig_img_rocauc.title.set_text("Average image-level ROCAUC: {:.2f}".format(np.mean(total_img_rocauc)))
     fig_img_rocauc.legend(loc="lower right")
+    fig_img_rocauc.set_xlabel("False Positive Rate")
+    fig_img_rocauc.set_ylabel("True Positive Rate")
 
-    print("Average pixel-level ROCAUC: {}".format(np.mean(total_pixel_rocauc)))
-    fig_pixel_rocauc.title.set_text("Average pixel-level ROCAUC: {}".format(np.mean(total_pixel_rocauc)))
+    print("Average pixel-level ROCAUC: {:.2f}".format(np.mean(total_pixel_rocauc)))
+    fig_pixel_rocauc.title.set_text("Average pixel-level ROCAUC: {:.2f}".format(np.mean(total_pixel_rocauc)))
     fig_pixel_rocauc.legend(loc="lower right")
+    fig_pixel_rocauc.set_xlabel("False Positive Rate")
+    fig_pixel_rocauc.set_ylabel("True Positive Rate")
+
+    print("Average PROAUC: {:.2f}".format(np.mean(total_proauc)))
+    fig_proauc.title.set_text("Average PROAUC: {:.2f}".format(np.mean(total_proauc)))
+    fig_proauc.legend(loc="lower right")
+    fig_proauc.set_xlabel("False Positive Rate")
+    fig_proauc.set_ylabel("Per Region Overlap")
+
+    print("Average PRAUC: {:.2f}".format(np.mean(total_prauc)))
+    fig_prauc.title.set_text("Average PRAUC: {:.2f}".format(np.mean(total_prauc)))
+    fig_prauc.legend(loc="lower right")
+    fig_prauc.set_xlabel("Recall")
+    fig_prauc.set_ylabel("Precision")
 
     fig.tight_layout()
     fig.savefig(os.path.join(args.save_directory, "temp_{}_Layer_{}_Rd_{}".format(args.backbone_model, args.layer_used,
                                                                                   args.dimensionality_reduction),
-                             'roc_curve.png'), dpi=100)
+                             'metrics_curve.png'), dpi=100)
 
 
 def concat_embedding_vectors(x, y):
