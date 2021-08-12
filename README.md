@@ -92,12 +92,14 @@
 |Zipper|0.89| | | |
 |All object classes|0.90| | | |
 |All classes|0.92| | | |
- ### ROC Curve
+
+
+### ROC Curve
 
 * ResNet18-Rd100
 
 <p align="center">
-    <img src="imgs/metrics.png" width="1000"\>
+    <img src="imgs/metrics_curve.png" width="1000"\>
 </p>
 
 
